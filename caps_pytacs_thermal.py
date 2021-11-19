@@ -60,9 +60,9 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
 
     # t = tarray[dvNum]
     # Setup (isotropic) property and constitutive objects
-    prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
-    # prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
-    #                                                  E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
+    # prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
+    prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
+                                                     E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
     # Set one thickness dv for every component
     con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
 
@@ -81,8 +81,8 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     transform = elements.ShellRefAxisTransform(refAxis)
     for elemDescript in elemDescripts:
         if elemDescript in ['CQUAD4', 'CQUADR']:
-            # elem = elements.Quad4ThermalShell(transform, con)
-            elem = elements.Quad4Shell(transform, con)
+            elem = elements.Quad4ThermalShell(transform, con)
+            # elem = elements.Quad4Shell(transform, con)
         elif elemDescript in ['CTRIA3', 'CTRIAR']:
             elem = elements.Tri3Shell(transform, con)
         else:
@@ -117,10 +117,10 @@ tacs.setNodes(X)
 # Create the forces
 forces = tacs.createVec()
 force_array = forces.getArray() 
-force_array[2::6] += 100.0 # uniform load in z direction
-# force_array[3::7] += 1.0 # Heat Flux
-tacs.applyBCs(forces)
-# tacs.setBCs(forces)
+# force_array[2::6] += 100.0 # uniform load in z direction
+force_array[3::7] += 1.0 # Heat Flux
+# tacs.applyBCs(forces)
+tacs.setBCs(forces)
 
 
 # Set up and solve the analysis problem
@@ -261,4 +261,4 @@ flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_STRESSES |
         TACS.OUTPUT_EXTRAS)
 f5 = TACS.ToFH5(tacs, TACS.BEAM_OR_SHELL_ELEMENT, flag)
-f5.writeToFile('output.f5')
+f5.writeToFile('outputThermal.f5')
