@@ -29,7 +29,7 @@ structOptions = {
     'printtiming':True,
 }
 
-bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS2.dat')
+bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse.dat')
 FEASolver = pyTACS(bdfFile, options=structOptions, comm=tacs_comm)
 
 # Material properties
@@ -38,25 +38,31 @@ E = 73.1e9          # Young's modulus (Pa)
 nu = 0.33           # Poisson's ratio
 kcorr = 5.0/6.0     # shear correction factor
 ys = 324.0e6        # yield stress
+specific_heat = 920.096
+cte = 24.0e-6
+kappa = 230.0
 
 # Shell thickness
-# t = 0.01            # m
-tarray = np.array([0.01, 0.05])
+t = 0.005            # m
+# tarray = np.array([0.01, 0.05])
 tMin = 0.002        # m
 tMax = 0.05         # m
 
 # Callback function used to setup TACS element objects and DVs
 def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
-    print('dvNum:          ', dvNum)
-    print('compID:         ', compID)
-    print('compDescript:   ', compDescript)
-    print('elemDescripts:  ', elemDescripts)
-    print('globalDVs:      ', globalDVs)
-    print('kwargs:         ', kwargs)
+    
+    # print('dvNum:          ', dvNum)
+    # print('compID:         ', compID)
+    # print('compDescript:   ', compDescript)
+    # print('elemDescripts:  ', elemDescripts)
+    # print('globalDVs:      ', globalDVs)
+    # print('kwargs:         ', kwargs)
 
-    t = tarray[dvNum]
+    # t = tarray[dvNum]
     # Setup (isotropic) property and constitutive objects
-    prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
+    # prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
+    prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
+                                                     E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
     # Set one thickness dv for every component
     con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
 
@@ -75,7 +81,8 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     transform = elements.ShellRefAxisTransform(refAxis)
     for elemDescript in elemDescripts:
         if elemDescript in ['CQUAD4', 'CQUADR']:
-            elem = elements.Quad4Shell(transform, con)
+            elem = elements.Quad4ThermalShell(transform, con)
+            # elem = elements.Quad4Shell(transform, con)
         elif elemDescript in ['CTRIA3', 'CTRIAR']:
             elem = elements.Tri3Shell(transform, con)
         else:
@@ -87,9 +94,7 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     return elemList, scale
 
 # Set up elements and TACS assembler
-# assembler = FEASolver.assembler
 FEASolver.createTACSAssembler(elemCallBack)
-# assembler = FEASolver.assembler
 tacs = FEASolver.assembler
 
 # Create the KS Function
@@ -112,8 +117,11 @@ tacs.setNodes(X)
 # Create the forces
 forces = tacs.createVec()
 force_array = forces.getArray() 
-force_array[2::6] += 100.0 # uniform load in z direction
-tacs.applyBCs(forces)
+# force_array[2::6] += 100.0 # uniform load in z direction
+force_array[3::7] += 1.0 # Heat Flux
+# tacs.applyBCs(forces)
+tacs.setBCs(forces)
+
 
 # Set up and solve the analysis problem
 res = tacs.createVec()
@@ -253,4 +261,4 @@ flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_STRESSES |
         TACS.OUTPUT_EXTRAS)
 f5 = TACS.ToFH5(tacs, TACS.BEAM_OR_SHELL_ELEMENT, flag)
-f5.writeToFile('output2.f5')
+f5.writeToFile('output3.f5')
