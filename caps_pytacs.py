@@ -29,7 +29,7 @@ structOptions = {
     'printtiming':True,
 }
 
-bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse_thermal.dat')
+bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse.dat')
 FEASolver = pyTACS(bdfFile, options=structOptions, comm=tacs_comm)
 
 # Material properties
@@ -100,8 +100,8 @@ tacs = FEASolver.assembler
 # Create the KS Function
 ksWeight = 100.0
 # funcs = [functions.KSFailure(tacs, ksWeight=ksWeight)]
-funcs = [functions.StructuralMass(tacs)]
-# funcs = [functions.Compliance(tacs)]
+# funcs = [functions.StructuralMass(tacs)]
+funcs = [functions.Compliance(tacs)]
 
 # Get the design variable values
 x = tacs.createDesignVec()
