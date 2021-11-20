@@ -73,12 +73,13 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     # else: # RIBS + SPARS + ENGINE_MOUNT
     #     refAxis = np.array([0.0, 0.0, 1.0])
 
-    refAxis = np.array([1.0, 0.0, 0.0])
+    # refAxis = np.array([0.0, 1.0, 0.0])
 
     # For each element type in this component,
     # pass back the appropriate tacs element object
     elemList = []
-    transform = elements.ShellRefAxisTransform(refAxis)
+    # transform = elements.ShellRefAxisTransform(refAxis)
+    transform = None
     for elemDescript in elemDescripts:
         if elemDescript in ['CQUAD4', 'CQUADR']:
             # elem = elements.Quad4ThermalShell(transform, con)
@@ -99,9 +100,9 @@ tacs = FEASolver.assembler
 
 # Create the KS Function
 ksWeight = 100.0
-# funcs = [functions.KSFailure(tacs, ksWeight=ksWeight)]
+funcs = [functions.KSFailure(tacs, ksWeight=ksWeight)]
 # funcs = [functions.StructuralMass(tacs)]
-funcs = [functions.Compliance(tacs)]
+# funcs = [functions.Compliance(tacs)]
 
 # Get the design variable values
 x = tacs.createDesignVec()
