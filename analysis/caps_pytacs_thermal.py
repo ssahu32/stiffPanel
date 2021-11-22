@@ -118,8 +118,8 @@ tacs.setNodes(X)
 # Create the forces
 forces = tacs.createVec()
 force_array = forces.getArray() 
-# force_array[2::6] += 100.0 # uniform load in z direction
-force_array[3::7] += 1.0 # Heat Flux
+# force_array[2::7] += 1.0 # uniform load in z direction
+force_array[6::7] += 1e-3 # Heat Flux
 # tacs.applyBCs(forces)
 tacs.setBCs(forces)
 
@@ -215,7 +215,7 @@ else:
 result = xpert.dot(fdv_sens)
 if tacs_comm.rank == 0:
     print('FD:      ', fd[0])
-    print('Result:  ', result)
+    print('Adjoint: ', result)
     print('Rel err: ', (result - fd[0])/result)
 
 # Reset the old variable values
@@ -251,7 +251,7 @@ result = pert.dot(fXptSens)
 
 if tacs_comm.rank == 0:
     print('FD:      ', fd[0])
-    print('Result:  ', result)
+    print('Adjoint: ', result)
     print('Rel err: ', (result - fd[0])/result)
 
 # Output for visualization 
