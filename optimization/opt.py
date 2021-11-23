@@ -22,29 +22,48 @@ from tacs import TACS, functions, constitutive, elements, pyTACS, problems
 # ==============================================================================
 from pyoptsparse import SLSQP, Optimization
 
-
-tacs_comm = MPI.COMM_WORLD
-
-
-
-# # rst begin objfunc
-# def objfunc(xdict):
-#     x = xdict["xvars"]
-#     funcs = {}
-#     funcs["obj"] = -x[0] * x[1] * x[2]
-#     conval = [0] * 2
-#     conval[0] = x[0] + 2.0 * x[1] + 2.0 * x[2] - 72.0
-#     conval[1] = -x[0] - 2.0 * x[1] - 2.0 * x[2]
-#     funcs["con"] = conval
-#     fail = False
-
-#     return funcs, fail
-
-
-
+comm = MPI.COMM_WORLD
 
 # rst begin objfunc
 def objfunc(xdict):
+
+    tInputArray1 = xdict["xvars"]
+
+    # There are 8 plate segments and 4 stiffener segments.
+    # Since the overall panel is symmetric, they can be set equal to the opposite of one another
+    # to reduce design variables
+    def symmetryIndex(xInput):
+        totalIndex = np.array([[0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 5, 4], 
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]])
+
+        xOutput = np.zeros(len(totalIndex[0]))
+
+        for i in range(0, len(xInput)):
+            for j in range(0, len(xOutput)):
+                if i == totalIndex[0, j]:
+                    xOutput[totalIndex[1, j]] = xInput[i]
+
+        return xOutput
+
+    # CAPS group assigments are all jumbled up. This maps them properly
+    # First 8 indexes represent plate segments perpendicular to stiffeners
+    # Last 4 indexes represent stiffener segments
+    def designIndex(xInput):
+        plateIndex = np.array([[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7], 
+        [16,23,40,47,64,71,88,95,103,111,15,22,39,46,63,70,87,94,102,110,14,21,38,45,62,69,86,93,101,109,13,20,37,44,61,68,85,92,100,108,12,19,36,43,60,67,84,91,99,107,11,18,35,42,59,66,83,90,98,106,10,17,34,41,58,65,82,89,97,105,8,9,32,33,56,57,80,81,96,104]])
+
+        stiffenerIndex = np.array([[8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,11,11,11,11,11,11,11,11],
+        [72,73,74,75,76,77,78,79,48,49,50,51,52,53,54,55,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7]])
+
+        totalIndex = np.hstack((plateIndex, stiffenerIndex))
+        xOutput = np.zeros(len(totalIndex[0]))
+
+        for i in range(0, len(xInput)):
+            for j in range(0, len(xOutput)):
+                if i == totalIndex[0, j]:
+                    xOutput[totalIndex[1, j]] = xInput[i]
+
+        return xOutput
 
     # Instantiate FEASolver
     structOptions = {
@@ -52,7 +71,7 @@ def objfunc(xdict):
     }
 
     bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse.dat')
-    FEASolver = pyTACS(bdfFile, options=structOptions, comm=tacs_comm)
+    FEASolver = pyTACS(bdfFile, options=structOptions, comm=comm)
 
     # Material properties
     rho = 2780.0        # density kg/m^3
@@ -61,9 +80,18 @@ def objfunc(xdict):
     kcorr = 5.0/6.0     # shear correction factor
     ys = 324.0e6        # yield stress
     # Shell thickness
-    t = 0.005            # m
+    # t = 0.005            # m
+    # tInputArray1 = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+    tInputArray2 = symmetryIndex(tInputArray1)
+    # tInputArray = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 
+    #     0.1, 0.1, 0.1, 0.1])
+    tOutputArray3= designIndex(tInputArray2)
 
     def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
+        elemIndex = kwargs['propID'] - 1
+        # t = tOutputArray[compID]
+        t = tOutputArray3[elemIndex]
+
         prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
         con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
 
@@ -80,38 +108,44 @@ def objfunc(xdict):
         return elemList, scale
     
     # Set up elements and TACS assembler
-    FEASolver.createTACSAssembler(elemCallBack)
-    tacs = FEASolver.assembler
+    FEASolver.initialize(elemCallBack)
+    assembler = FEASolver.assembler
 
     # Create the KS Function
     ksWeight = 100.0
-    # funcs = [functions.KSFailure(tacs, ksWeight=ksWeight)]
-    funcs = [functions.StructuralMass(tacs)]
-    # funcs = [functions.Compliance(tacs)]
+    tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
+         functions.StructuralMass(assembler),
+         functions.Compliance(assembler)]
+    # funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
+    #      functions.StructuralMass(assembler),
+    #      functions.AverageTemperature(assembler),
+    #      functions.KSTemperature(assembler, ksWeight=ksWeight)]
 
     # Get the design variable values
-    x = tacs.createDesignVec()
+    x = assembler.createDesignVec()
     x_array = x.getArray()
-    tacs.getDesignVars(x)
+    assembler.getDesignVars(x)
+    # if comm.rank == 0:
+    # print('x_DesignVars:      ', x_array)
 
     # Get the node locations
-    X = tacs.createNodeVec()
-    tacs.getNodes(X)
-    tacs.setNodes(X)
+    X = assembler.createNodeVec()
+    assembler.getNodes(X)
+    assembler.setNodes(X)
 
     # Create the forces
-    forces = tacs.createVec()
-    force_array = forces.getArray() 
-    force_array[2::6] += 100.0 # uniform load in z direction
-    # force_array[3::7] += 1.0 # Heat Flux
-    tacs.applyBCs(forces)
-    # tacs.setBCs(forces)
+    forces = assembler.createVec()
+    force_array = forces.getArray()
+    # force_array[2::7] += 1.0 # uniform load in z direction
+    force_array[2::7] += 1e-4 # Uniform z loading
+    # assembler.applyBCs(forces)
+    assembler.setBCs(forces)
 
     # Set up and solve the analysis problem
-    res = tacs.createVec()
-    ans = tacs.createVec()
-    u = tacs.createVec()
-    mat = tacs.createSchurMat()
+    res = assembler.createVec()
+    ans = assembler.createVec()
+    u = assembler.createVec()
+    mat = assembler.createSchurMat()
     pc = TACS.Pc(mat)
     subspace = 100
     restarts = 2
@@ -121,21 +155,27 @@ def objfunc(xdict):
     alpha = 1.0
     beta = 0.0
     gamma = 0.0
-    tacs.zeroVariables()
-    tacs.assembleJacobian(alpha, beta, gamma, res, mat)
+    assembler.zeroVariables()
+    assembler.assembleJacobian(alpha, beta, gamma, res, mat)
     pc.factor()
 
     # Solve the linear system
     gmres.solve(forces, ans)
-    tacs.setVariables(ans)
+    assembler.setVariables(ans)
 
+    # Evaluate the function
+    fvals = assembler.evalFunctions(tacsFuncs)
 
-    xPO = xdict["xvars"]
+    print('Panel Segment Thicknesses:      ', tInputArray1[0:4])
+    print('Stiffener Segment Thicknesses:  ', tInputArray1[4:6])
+    print('KSFailure:         ', fvals[0])
+    print('Structural Mass:   ', fvals[1])
+    print('Compliance:        ', fvals[2])
+    
+    # Objective 
     funcs = {}
-    funcs["obj"] = -xPO[0] * xPO[1] * xPO[2]
-    conval = [0] * 2
-    conval[0] = xPO[0] + 2.0 * xPO[1] + 2.0 * xPO[2] - 72.0
-    conval[1] = -xPO[0] - 2.0 * xPO[1] - 2.0 * xPO[2]
+    funcs["obj"] = fvals[1] # Objective is mass minimization
+    conval = fvals[2] # Constraint is Compliance
     funcs["con"] = conval
     fail = False
 
@@ -144,15 +184,18 @@ def objfunc(xdict):
 
 # rst begin optProb
 # Optimization Object
-optProb = Optimization("TP037 Constraint Problem", objfunc)
+optProb = Optimization("Stiffened Panel Optimization", objfunc)
 
 # rst begin addVar
 # Design Variables
-optProb.addVarGroup("xvars", 3, "c", lower=[0, 0, 0], upper=[42, 42, 42], value=10)
+# optProb.addVarGroup("xvars", 3, "c", lower=[0, 0, 0], upper=[42, 42, 42], value=10)
+optProb.addVarGroup("xvars", 6, "c", lower=0.001*np.ones(6), upper=1*np.ones(6), value=0.01)
 
 # rst begin addCon
 # Constraints
-optProb.addConGroup("con", 2, lower=None, upper=0.0)
+optProb.addConGroup("con", 1, lower=3e-7, upper=6e-7)
+# Default values at x = 0.1 for KSFailure, Struct Mass, and Compliance
+# [8.93888317e-03 3.33600000e+02 3.88132085e-03]
 
 # rst begin addObj
 # Objective

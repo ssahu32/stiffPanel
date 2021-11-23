@@ -22,7 +22,44 @@ from mpi4py import MPI
 # ==============================================================================
 from tacs import TACS, functions, constitutive, elements, pyTACS, problems
 
-tacs_comm = MPI.COMM_WORLD
+comm = MPI.COMM_WORLD
+
+# There are 8 plate segments and 4 stiffener segments.
+# Since the overall panel is symmetric, they can be set equal to the opposite of one another
+# to reduce design variables
+def symmetryIndex(xInput):
+    totalIndex = np.array([[0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 5, 4], 
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]])
+
+    xOutput = np.zeros(len(totalIndex[0]))
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(xOutput)):
+            if i == totalIndex[0, j]:
+                xOutput[totalIndex[1, j]] = xInput[i]
+
+    return xOutput
+
+# CAPS group assigments are all jumbled up. This maps them properly
+# First 8 indexes represent plate segments perpendicular to stiffeners
+# Last 4 indexes represent stiffener segments
+def designIndex(xInput):
+    plateIndex = np.array([[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7], 
+    [16,23,40,47,64,71,88,95,103,111,15,22,39,46,63,70,87,94,102,110,14,21,38,45,62,69,86,93,101,109,13,20,37,44,61,68,85,92,100,108,12,19,36,43,60,67,84,91,99,107,11,18,35,42,59,66,83,90,98,106,10,17,34,41,58,65,82,89,97,105,8,9,32,33,56,57,80,81,96,104]])
+
+    stiffenerIndex = np.array([[8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,11,11,11,11,11,11,11,11],
+    [72,73,74,75,76,77,78,79,48,49,50,51,52,53,54,55,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7]])
+
+    totalIndex = np.hstack((plateIndex, stiffenerIndex))
+    xOutput = np.zeros(len(totalIndex[0]))
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(xOutput)):
+            if i == totalIndex[0, j]:
+                xOutput[totalIndex[1, j]] = xInput[i]
+
+    return xOutput
+
 
 # Instantiate FEASolver
 structOptions = {
@@ -30,7 +67,7 @@ structOptions = {
 }
 
 bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse.dat')
-FEASolver = pyTACS(bdfFile, options=structOptions, comm=tacs_comm)
+FEASolver = pyTACS(bdfFile, options=structOptions, comm=comm)
 
 # Material properties
 rho = 2780.0        # density kg/m^3
@@ -38,31 +75,31 @@ E = 73.1e9          # Young's modulus (Pa)
 nu = 0.33           # Poisson's ratio
 kcorr = 5.0/6.0     # shear correction factor
 ys = 324.0e6        # yield stress
-specific_heat = 920.096
-cte = 24.0e-6
-kappa = 230.0
 
 # Shell thickness
-t = 0.005            # m
-# tarray = np.array([0.01, 0.05])
-tMin = 0.002        # m
-tMax = 0.05         # m
+# t = 0.005            # m
+tInputArray1 = np.array([0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
+tInputArray2 = symmetryIndex(tInputArray1)
+# tInputArray = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 
+#     0.1, 0.1, 0.1, 0.1])
+tOutputArray3= designIndex(tInputArray2)
 
 # Callback function used to setup TACS element objects and DVs
 def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
-    
     # print('dvNum:          ', dvNum)
     # print('compID:         ', compID)
     # print('compDescript:   ', compDescript)
     # print('elemDescripts:  ', elemDescripts)
     # print('globalDVs:      ', globalDVs)
     # print('kwargs:         ', kwargs)
+    elemIndex = kwargs['propID'] - 1
+    # t = tOutputArray[compID]
+    t = tOutputArray3[elemIndex]
 
-    # t = tarray[dvNum]
     # Setup (isotropic) property and constitutive objects
     prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
     # prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
-    #                                                  E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
+    #                                        E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
     # Set one thickness dv for every component
     con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
 
@@ -73,7 +110,7 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     # else: # RIBS + SPARS + ENGINE_MOUNT
     #     refAxis = np.array([0.0, 0.0, 1.0])
 
-    # refAxis = np.array([0.0, 1.0, 0.0])
+    refAxis = np.array([1.0, 0.0, 0.0])
 
     # For each element type in this component,
     # pass back the appropriate tacs element object
@@ -95,40 +132,45 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     return elemList, scale
 
 # Set up elements and TACS assembler
-FEASolver.createTACSAssembler(elemCallBack)
-tacs = FEASolver.assembler
+FEASolver.initialize(elemCallBack)
+assembler = FEASolver.assembler
 
 # Create the KS Function
 ksWeight = 100.0
-funcs = [functions.KSFailure(tacs, ksWeight=ksWeight)]
-# funcs = [functions.StructuralMass(tacs)]
-# funcs = [functions.Compliance(tacs)]
+funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
+         functions.StructuralMass(assembler),
+         functions.Compliance(assembler)]
+# funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
+#          functions.StructuralMass(assembler),
+#          functions.AverageTemperature(assembler),
+#          functions.KSTemperature(assembler, ksWeight=ksWeight)]
+# funcs = [functions.Compliance(assembler)]
 
 # Get the design variable values
-x = tacs.createDesignVec()
+x = assembler.createDesignVec()
 x_array = x.getArray()
-tacs.getDesignVars(x)
-print('x_DesignVars:      ', x_array)
+assembler.getDesignVars(x)
+if comm.rank == 0:
+    print('x_DesignVars:      ', x_array)
+    print('len(x_DesignVars): ', len(x_array))
 
 # Get the node locations
-X = tacs.createNodeVec()
-tacs.getNodes(X)
-tacs.setNodes(X)
+X = assembler.createNodeVec()
+assembler.getNodes(X)
+assembler.setNodes(X)
 
 # Create the forces
-forces = tacs.createVec()
-force_array = forces.getArray() 
-force_array[2::6] += 100.0 # uniform load in z direction
-# force_array[3::7] += 1.0 # Heat Flux
-tacs.applyBCs(forces)
-# tacs.setBCs(forces)
-
+forces = assembler.createVec()
+force_array = forces.getArray()
+force_array[2::6] -= 1 # uniform load in z direction
+# assembler.applyBCs(forces)
+assembler.setBCs(forces)
 
 # Set up and solve the analysis problem
-res = tacs.createVec()
-ans = tacs.createVec()
-u = tacs.createVec()
-mat = tacs.createSchurMat()
+res = assembler.createVec()
+ans = assembler.createVec()
+u = assembler.createVec()
+mat = assembler.createSchurMat()
 pc = TACS.Pc(mat)
 subspace = 100
 restarts = 2
@@ -138,54 +180,50 @@ gmres = TACS.KSM(mat, pc, subspace, restarts)
 alpha = 1.0
 beta = 0.0
 gamma = 0.0
-tacs.zeroVariables()
-tacs.assembleJacobian(alpha, beta, gamma, res, mat)
+assembler.zeroVariables()
+assembler.assembleJacobian(alpha, beta, gamma, res, mat)
 pc.factor()
 
 # Solve the linear system
 gmres.solve(forces, ans)
-tacs.setVariables(ans)
+assembler.setVariables(ans)
 
 # Evaluate the function
-fvals1 = tacs.evalFunctions(funcs)
-print('fvals1:      ', fvals1)
+fvals1 = assembler.evalFunctions(funcs)
+
+if comm.rank == 0:
+    print('fvals1:      ', fvals1)
+
+# Assemble the transpose of the Jacobian matrix
+assembler.assembleJacobian(alpha, beta, gamma, res, mat, TACS.TRANSPOSE)
+pc.factor()
 
 # Solve for the adjoint variables
-adjoint = tacs.createVec()
-res.zeroEntries()
-tacs.addSVSens([funcs[0]], [res])
-gmres.solve(res, adjoint)
+adjoint = assembler.createVec()
 
-# Compute the total derivative w.r.t. material design variables
-fdv_sens = tacs.createDesignVec()
-fdv_sens_array = fdv_sens.getArray()
-tacs.addDVSens([funcs[0]], [fdv_sens])
-tacs.addAdjointResProducts([adjoint], [fdv_sens], -1)
-# Finalize sensitivity arrays across all procs
-fdv_sens.beginSetValues()
-fdv_sens.endSetValues()
+dfdx = []
 
-# Create a random direction along which to perturb the nodes
-pert = tacs.createNodeVec()
-X_array = X.getArray()
-pert_array = pert.getArray()
-pert_array[0::3] = X_array[1::3]
-pert_array[1::3] = X_array[0::3]
-pert_array[2::3] = X_array[2::3]
+for func in funcs:
+    res.zeroEntries()
+    assembler.addSVSens([func], [res])
+    gmres.solve(res, adjoint)
 
-# Compute the total derivative w.r.t. nodal locations
-fXptSens = tacs.createNodeVec()
-tacs.addXptSens([funcs[0]], [fXptSens])
-tacs.addAdjointResXptSensProducts([adjoint], [fXptSens], -1)
-# Finalize sensitivity arrays across all procs
-fXptSens.beginSetValues()
-fXptSens.endSetValues()
+    # Compute the total derivative w.r.t. material design variables
+    fdv_sens = assembler.createDesignVec()
+    assembler.addDVSens([func], [fdv_sens])
+    assembler.addAdjointResProducts([adjoint], [fdv_sens], -1.0)
+
+    # Finalize sensitivity arrays across all procs
+    fdv_sens.beginSetValues()
+    fdv_sens.endSetValues()
+
+    dfdx.append(fdv_sens)
 
 # Set the complex step
-xpert = tacs.createDesignVec()
+xpert = assembler.createDesignVec()
 xpert.setRand()
-xpert_array = xpert.getArray()
-xnew = tacs.createDesignVec()
+
+xnew = assembler.createDesignVec()
 xnew.copyValues(x)
 if TACS.dtype is complex:
     dh = 1e-30
@@ -195,71 +233,36 @@ else:
     xnew.axpy(dh, xpert)
 
 # Set the design variables
-tacs.setDesignVars(xnew)
+assembler.setDesignVars(xnew)
 
 # Compute the perturbed solution
-tacs.zeroVariables()
-tacs.assembleJacobian(alpha, beta, gamma, res, mat)
+assembler.zeroVariables()
+assembler.assembleJacobian(alpha, beta, gamma, res, mat)
 pc.factor()
 gmres.solve(forces, u)
-tacs.setVariables(u)
+assembler.setVariables(u)
 
 # Evaluate the function for perturbed solution
-fvals2 = tacs.evalFunctions(funcs)
+fvals2 = assembler.evalFunctions(funcs)
 
-if TACS.dtype is complex:
-    fd = fvals2.imag/dh
-else:
-    fd = (fvals2 - fvals1)/dh
+for i in range(len(funcs)):
+    if TACS.dtype is complex:
+        fd = fvals2[i].imag/dh
+    else:
+        fd = (fvals2[i] - fvals1[i])/dh
 
-result = xpert.dot(fdv_sens)
-if tacs_comm.rank == 0:
-    print('FD:      ', fd[0])
-    print('Result:  ', result)
-    print('Rel err: ', (result - fd[0])/result)
+    result = xpert.dot(dfdx[i])
+    if comm.rank == 0:
+        print('FD:      ', fd)
+        print('Adjoint: ', result)
+        print('Rel err: ', (result - fd)/result)
 
-# Reset the old variable values
-tacs.setDesignVars(x)
-
-if TACS.dtype is complex:
-    dh = 1e-30
-    X.axpy(dh*1j, pert)
-else:
-    dh = 1e-6
-    X.axpy(dh, pert)
-
-# Set the perturbed node locations
-tacs.setNodes(X)
-
-# Compute the perturbed solution
-tacs.zeroVariables()
-tacs.assembleJacobian(alpha, beta, gamma, res, mat)
-pc.factor()
-gmres.solve(forces, u)
-tacs.setVariables(u)
-
-# Evaluate the function again
-fvals2 = tacs.evalFunctions(funcs)
-
-if TACS.dtype is complex:
-    fd = fvals2.imag/dh
-else:
-    fd = (fvals2 - fvals1)/dh
-
-# Compute the projected derivative
-result = pert.dot(fXptSens)
-
-if tacs_comm.rank == 0:
-    print('FD:      ', fd[0])
-    print('Result:  ', result)
-    print('Rel err: ', (result - fd[0])/result)
-
-# Output for visualization 
+# Output for visualization
 flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_NODES |
         TACS.OUTPUT_DISPLACEMENTS |
         TACS.OUTPUT_STRAINS |
         TACS.OUTPUT_STRESSES |
         TACS.OUTPUT_EXTRAS)
-f5 = TACS.ToFH5(tacs, TACS.BEAM_OR_SHELL_ELEMENT, flag)
+f5 = TACS.ToFH5(assembler, TACS.BEAM_OR_SHELL_ELEMENT, flag)
 f5.writeToFile('output.f5')
