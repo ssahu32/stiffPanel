@@ -24,6 +24,67 @@ from tacs import TACS, functions, constitutive, elements, pyTACS, problems
 
 comm = MPI.COMM_WORLD
 
+# There are 8 plate segments and 4 stiffener segments.
+# Since the overall panel is symmetric, they can be set equal to the opposite of one another
+# to reduce design variables
+def symmetryIndex(xInput):
+    totalIndex = np.array([[0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 5, 4], 
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]])
+
+    xOutput = np.zeros(len(totalIndex[0]))
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(xOutput)):
+            if i == totalIndex[0, j]:
+                xOutput[totalIndex[1, j]] = xInput[i]
+
+    return xOutput
+
+# CAPS group assigments are all jumbled up. This maps them properly
+# First 8 indexes represent plate segments perpendicular to stiffeners
+# Last 4 indexes represent stiffener segments
+def designIndex(xInput):
+    plateIndex = np.array([[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7], 
+    [16,23,40,47,64,71,88,95,103,111,15,22,39,46,63,70,87,94,102,110,14,21,38,45,62,69,86,93,101,109,13,20,37,44,61,68,85,92,100,108,12,19,36,43,60,67,84,91,99,107,11,18,35,42,59,66,83,90,98,106,10,17,34,41,58,65,82,89,97,105,8,9,32,33,56,57,80,81,96,104]])
+
+    stiffenerIndex = np.array([[8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,11,11,11,11,11,11,11,11],
+    [72,73,74,75,76,77,78,79,48,49,50,51,52,53,54,55,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7]])
+
+    totalIndex = np.hstack((plateIndex, stiffenerIndex))
+    xOutput = np.zeros(len(totalIndex[0]))
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(xOutput)):
+            if i == totalIndex[0, j]:
+                xOutput[totalIndex[1, j]] = xInput[i]
+
+    return xOutput
+
+
+def revDesignIndex(xInput):
+    plateIndex = np.array([[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7], 
+    [16,23,40,47,64,71,88,95,103,111,15,22,39,46,63,70,87,94,102,110,14,21,38,45,62,69,86,93,101,109,13,20,37,44,61,68,85,92,100,108,12,19,36,43,60,67,84,91,99,107,11,18,35,42,59,66,83,90,98,106,10,17,34,41,58,65,82,89,97,105,8,9,32,33,56,57,80,81,96,104]])
+
+    stiffenerIndex = np.array([[8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,11,11,11,11,11,11,11,11],
+    [72,73,74,75,76,77,78,79,48,49,50,51,52,53,54,55,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7]])
+
+    totalIndex = np.hstack((plateIndex, stiffenerIndex))
+    xOutput = np.zeros( totalIndex[0, len(totalIndex[0]) - 1] + 1)
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(totalIndex[0])):
+            if i == totalIndex[1, j]:
+                # print('i:     ', i)
+                # print('j:     ', j)
+                xOutput[totalIndex[0, j]] += xInput[i]
+
+    # inputNorm = np.linalg.norm(xInput)
+    # xOutput = xOutput / np.linalg.norm(xOutput)
+    # xOutput = inputNorm * xOutput
+
+    return xOutput
+
+
 # Instantiate FEASolver
 structOptions = {
     'printtiming':True,
@@ -43,35 +104,28 @@ cte = 24.0e-6
 kappa = 230.0
 
 # Shell thickness
-t = 0.005            # m
-# tarray = np.array([0.01, 0.05])
-tMin = 0.002        # m
-tMax = 0.05         # m
+# tInputArray1 = 0.1*np.ones(6)
+tInputArray1 = np.array([0.20215001, 0.13675352, 0.08083595, 0.02695205, 0.04152267, 0.04318834])
+tInputArray2 = symmetryIndex(tInputArray1)
+tOutputArray3= designIndex(tInputArray2)
 
 # Callback function used to setup TACS element objects and DVs
 def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
-
     # print('dvNum:          ', dvNum)
     # print('compID:         ', compID)
     # print('compDescript:   ', compDescript)
     # print('elemDescripts:  ', elemDescripts)
     # print('globalDVs:      ', globalDVs)
     # print('kwargs:         ', kwargs)
+    elemIndex = kwargs['propID'] - 1
+    # t = tOutputArray[compID]
+    t = tOutputArray3[elemIndex]
 
-    # t = tarray[dvNum]
     # Setup (isotropic) property and constitutive objects
     # prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
     prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
                                            E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
-    # Set one thickness dv for every component
     con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
-
-    # # Define reference axis for local shell stresses
-    # if 'SKIN' in compDescript: # USKIN + LSKIN
-    #     sweep = 35.0 / 180.0 * np.pi
-    #     refAxis = np.array([np.sin(sweep), np.cos(sweep), 0])
-    # else: # RIBS + SPARS + ENGINE_MOUNT
-    #     refAxis = np.array([0.0, 0.0, 1.0])
 
     refAxis = np.array([1.0, 0.0, 0.0])
 

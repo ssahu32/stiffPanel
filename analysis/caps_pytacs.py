@@ -61,6 +61,30 @@ def designIndex(xInput):
     return xOutput
 
 
+def revDesignIndex(xInput):
+    plateIndex = np.array([[0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,6,6,7,7,7,7,7,7,7,7,7,7], 
+    [16,23,40,47,64,71,88,95,103,111,15,22,39,46,63,70,87,94,102,110,14,21,38,45,62,69,86,93,101,109,13,20,37,44,61,68,85,92,100,108,12,19,36,43,60,67,84,91,99,107,11,18,35,42,59,66,83,90,98,106,10,17,34,41,58,65,82,89,97,105,8,9,32,33,56,57,80,81,96,104]])
+
+    stiffenerIndex = np.array([[8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9,10,10,10,10,10,10,10,10,11,11,11,11,11,11,11,11],
+    [72,73,74,75,76,77,78,79,48,49,50,51,52,53,54,55,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7]])
+
+    totalIndex = np.hstack((plateIndex, stiffenerIndex))
+    xOutput = np.zeros( totalIndex[0, len(totalIndex[0]) - 1] + 1)
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(totalIndex[0])):
+            if i == totalIndex[1, j]:
+                # print('i:     ', i)
+                # print('j:     ', j)
+                xOutput[totalIndex[0, j]] += xInput[i]
+
+    # inputNorm = np.linalg.norm(xInput)
+    # xOutput = xOutput / np.linalg.norm(xOutput)
+    # xOutput = inputNorm * xOutput
+
+    return xOutput
+
+
 # Instantiate FEASolver
 structOptions = {
     'printtiming':True,
@@ -77,11 +101,9 @@ kcorr = 5.0/6.0     # shear correction factor
 ys = 324.0e6        # yield stress
 
 # Shell thickness
-# t = 0.005            # m
-tInputArray1 = np.array([0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
+# tInputArray1 = 0.01*np.ones(6)
+tInputArray1 = np.array([1.46e-2, 4.41e-3, 1.61e-3, 7.38e-3, 1.22e-2, 4.95e-3]) # Optimized Result
 tInputArray2 = symmetryIndex(tInputArray1)
-# tInputArray = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 
-#     0.1, 0.1, 0.1, 0.1])
 tOutputArray3= designIndex(tInputArray2)
 
 # Callback function used to setup TACS element objects and DVs
@@ -256,6 +278,21 @@ for i in range(len(funcs)):
         print('FD:      ', fd)
         print('Adjoint: ', result)
         print('Rel err: ', (result - fd)/result)
+
+
+# dfdxnp = np.zeros(112)
+dfdxnp1 = dfdx[1].getArray()
+print('dfdxnp1:  ', dfdxnp1)
+dfdxnp2 = revDesignIndex(dfdxnp1)
+print('dfdxnp2:  ', dfdxnp2)
+
+xpertnp1 = xpert.getArray()
+xpertnp2 = revDesignIndex(xpertnp1)
+print('xpertnp2: ', xpertnp2)
+fdnp = np.dot(xpertnp2, dfdxnp2)
+print('fdnp: ', fdnp)
+fdnpcorrect = np.dot(xpertnp1, dfdxnp1)
+print('fdnpcorrect: ', fdnpcorrect)
 
 # Output for visualization
 flag = (TACS.OUTPUT_CONNECTIVITY |

@@ -70,7 +70,7 @@ def objfunc(xdict):
         'printtiming':False,
     }
 
-    bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse.dat')
+    bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse_thermal.dat')
     FEASolver = pyTACS(bdfFile, options=structOptions, comm=comm)
 
     # Material properties
@@ -79,6 +79,9 @@ def objfunc(xdict):
     nu = 0.33           # Poisson's ratio
     kcorr = 5.0/6.0     # shear correction factor
     ys = 324.0e6        # yield stress
+    specific_heat = 920.096
+    cte = 24.0e-6
+    kappa = 230.0
     # Shell thickness
     # t = 0.005            # m
     # tInputArray1 = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
@@ -92,15 +95,17 @@ def objfunc(xdict):
         # t = tOutputArray[compID]
         t = tOutputArray3[elemIndex]
 
-        prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
+        # prop = constitutive.MaterialProperties(rho=rho, E=E, nu=nu, ys=ys)
+        prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
+                                                E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
         con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
 
         elemList = []
         transform = None
         for elemDescript in elemDescripts:
             if elemDescript in ['CQUAD4', 'CQUADR']:
-                # elem = elements.Quad4ThermalShell(transform, con)
-                elem = elements.Quad4Shell(transform, con)
+                elem = elements.Quad4ThermalShell(transform, con)
+                # elem = elements.Quad4Shell(transform, con)
             else:
                 print("Uh oh, '%s' not recognized" % (elemDescript))
             elemList.append(elem)
@@ -113,13 +118,13 @@ def objfunc(xdict):
 
     # Create the KS Function
     ksWeight = 100.0
+    # tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
+    #      functions.StructuralMass(assembler),
+    #      functions.Compliance(assembler)]
     tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
          functions.StructuralMass(assembler),
-         functions.Compliance(assembler)]
-    # funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
-    #      functions.StructuralMass(assembler),
-    #      functions.AverageTemperature(assembler),
-    #      functions.KSTemperature(assembler, ksWeight=ksWeight)]
+         functions.AverageTemperature(assembler),
+         functions.KSTemperature(assembler, ksWeight=ksWeight)]
 
     # Get the design variable values
     x = assembler.createDesignVec()
@@ -136,8 +141,8 @@ def objfunc(xdict):
     # Create the forces
     forces = assembler.createVec()
     force_array = forces.getArray()
-    # force_array[2::7] += 1.0 # uniform load in z direction
-    force_array[2::6] += 1 # Uniform z loading
+    force_array[6::7] += 1e-3 # Heat flux
+    # force_array[2::6] += 1 # Uniform z loading
     # assembler.applyBCs(forces)
     assembler.setBCs(forces)
 
@@ -170,12 +175,13 @@ def objfunc(xdict):
         print('Design Variables:  ', tInputArray1)
         print('KSFailure:         ', fvals[0])
         print('Structural Mass:   ', fvals[1])
-        print('Compliance:        ', fvals[2])
+        print('Average Temp:      ', fvals[2])
+        print('KSTemperature:     ', fvals[3])
     
     # Objective 
     funcs = {}
-    funcs["obj"] = fvals[1] # Objective is mass minimization
-    conval = fvals[2] # Constraint is Compliance
+    funcs["obj"] = fvals[2] # Objective is temperature minimization
+    conval = fvals[1] # Constraint is mass
     funcs["con"] = conval
     fail = False
 
@@ -189,13 +195,13 @@ optProb = Optimization("Stiffened Panel Optimization", objfunc)
 # rst begin addVar
 # Design Variables
 # optProb.addVarGroup("xvars", 3, "c", lower=[0, 0, 0], upper=[42, 42, 42], value=10)
-optProb.addVarGroup("xvars", 6, "c", lower=0.001*np.ones(6), upper=0.1*np.ones(6), value=0.01)
+optProb.addVarGroup("xvars", 6, "c", lower=0.01*np.ones(6), upper=1*np.ones(6), value=0.1)
 
 # rst begin addCon
 # Constraints
-optProb.addConGroup("con", 1, lower=6.8e-1, upper=6.8e-1)
-# Default values at x = 0.001 for KSFailure, Struct Mass, and Compliance
-# [1.74024250e-02 3.33600000e+01 6.81517601e-01]
+optProb.addConGroup("con", 1, lower=3.34e2, upper=3.34e2)
+# Default values at x = 0.1 for KSFailure, Struct Mass, Average Temperature, KSTemperature
+# [8.82910988e-03 3.33600000e+02 1.57902424e-02 1.63050875e-02]
 
 # rst begin addObj
 # Objective
