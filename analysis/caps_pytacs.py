@@ -40,6 +40,20 @@ def symmetryIndex(xInput):
 
     return xOutput
 
+
+def revSymmetryIndex(xInput):
+    totalIndex = np.array([[0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 5, 4], 
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]])
+
+    xOutput = np.zeros(6)
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(totalIndex[0])):
+            if i == totalIndex[1, j]:
+                xOutput[totalIndex[0, j]] += xInput[i]
+
+    return xOutput
+
 # CAPS group assigments are all jumbled up. This maps them properly
 # First 8 indexes represent plate segments perpendicular to stiffeners
 # Last 4 indexes represent stiffener segments
@@ -74,16 +88,16 @@ def revDesignIndex(xInput):
     for i in range(0, len(xInput)):
         for j in range(0, len(totalIndex[0])):
             if i == totalIndex[1, j]:
-                # print('i:     ', i)
-                # print('j:     ', j)
                 xOutput[totalIndex[0, j]] += xInput[i]
-
-    # inputNorm = np.linalg.norm(xInput)
-    # xOutput = xOutput / np.linalg.norm(xOutput)
-    # xOutput = inputNorm * xOutput
-
+                
     return xOutput
 
+def revdesignVarIndex(xInput):
+    designVarIndex = np.array([111,16,110,102,94,87,70,63,46,39,22,103,15,109,101,93,86,69,62,45,38,21,95,14,108,100,92,85,68,61,44,37,20,88,13,107,99,91,84,67,60,43,36,19,71,12,106,98,90,83,66,59,42,35,18,64,11,105,97,89,82,65,58,41,34,17,47,10,104,96,80,81,56,57,32,33,8,40,9,23,79,53,29,5,76,52,28,4,75,51,27,55,3,74,50,26,2,73,49,25,1,72,31,48,24,0,7,78,54,30,6,77])
+    xOutput = np.zeros(len(xInput))
+    for i in range(0, len(xInput)):
+        xOutput[designVarIndex[i]] = xInput[i]
+    return xOutput
 
 # Instantiate FEASolver
 structOptions = {
@@ -102,9 +116,13 @@ ys = 324.0e6        # yield stress
 
 # Shell thickness
 # tInputArray1 = 0.01*np.ones(6)
-tInputArray1 = np.array([1.46e-2, 4.41e-3, 1.61e-3, 7.38e-3, 1.22e-2, 4.95e-3]) # Optimized Result
+tInputArray1 = np.linspace(1.0, 10.0,num=6)
+# tInputArray1 = np.array([1.46e-2, 4.41e-3, 1.61e-3, 7.38e-3, 1.22e-2, 4.95e-3]) # Optimized Result
 tInputArray2 = symmetryIndex(tInputArray1)
 tOutputArray3= designIndex(tInputArray2)
+# tOutputArray3 = np.linspace(1, 112,num=112)
+print('tOutputArray3:   ', tOutputArray3)
+
 
 # Callback function used to setup TACS element objects and DVs
 def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
@@ -124,13 +142,6 @@ def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs
     #                                        E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
     # Set one thickness dv for every component
     con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
-
-    # # Define reference axis for local shell stresses
-    # if 'SKIN' in compDescript: # USKIN + LSKIN
-    #     sweep = 35.0 / 180.0 * np.pi
-    #     refAxis = np.array([np.sin(sweep), np.cos(sweep), 0])
-    # else: # RIBS + SPARS + ENGINE_MOUNT
-    #     refAxis = np.array([0.0, 0.0, 1.0])
 
     refAxis = np.array([1.0, 0.0, 0.0])
 
@@ -280,19 +291,43 @@ for i in range(len(funcs)):
         print('Rel err: ', (result - fd)/result)
 
 
-# dfdxnp = np.zeros(112)
-dfdxnp1 = dfdx[1].getArray()
-print('dfdxnp1:  ', dfdxnp1)
-dfdxnp2 = revDesignIndex(dfdxnp1)
-print('dfdxnp2:  ', dfdxnp2)
+dfdxnp1 = dfdx[2].getArray()
+dfdxnp2 = revdesignVarIndex(dfdxnp1)
+dfdxnp3 = revDesignIndex(dfdxnp2)
+dfdxnp4 = revSymmetryIndex(dfdxnp3)
 
-xpertnp1 = xpert.getArray()
-xpertnp2 = revDesignIndex(xpertnp1)
-print('xpertnp2: ', xpertnp2)
-fdnp = np.dot(xpertnp2, dfdxnp2)
-print('fdnp: ', fdnp)
-fdnpcorrect = np.dot(xpertnp1, dfdxnp1)
-print('fdnpcorrect: ', fdnpcorrect)
+# Adjoint Testing
+
+# # dfdxnp = np.zeros(112)
+# dfdxnp1 = dfdx[2].getArray()
+# dfdxnp1 = revdesignVarIndex(dfdxnp1)
+# print('dfdxnp1:  ', dfdxnp1)
+# dfdxnp2 = revDesignIndex(dfdxnp1)
+# print('dfdxnp2:  ', dfdxnp2)
+# dfdxnp3 = revSymmetryIndex(dfdxnp2)
+# print('dfdxnp3:  ', dfdxnp3)
+
+# # xpertnp1 = np.ones(112)
+# xpertnp1 = xpert.getArray()
+# xpertnp1 = revdesignVarIndex(xpertnp1)
+# print('xpertnp1: ', xpertnp1)
+# xpertnp2 = revDesignIndex(xpertnp1)
+# print('xpertnp2: ', xpertnp2)
+
+# fdnp = np.dot(xpertnp2, dfdxnp2)
+# print('fdnp: ', fdnp)
+# fdnpcorrect = np.dot(xpertnp1, dfdxnp1)
+# print('fdnpcorrect: ', fdnpcorrect)
+
+# Get the design variable values
+x2 = assembler.createDesignVec()
+x_array2 = x2.getArray()
+assembler.getDesignVars(x2)
+if comm.rank == 0:
+    print('x_DesignVars2:      ', x_array2)
+    print('len(x_DesignVars2): ', len(x_array2))
+
+print('reordering', assembler.getReordering())
 
 # Output for visualization
 flag = (TACS.OUTPUT_CONNECTIVITY |
