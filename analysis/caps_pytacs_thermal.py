@@ -40,6 +40,20 @@ def symmetryIndex(xInput):
 
     return xOutput
 
+
+def revSymmetryIndex(xInput):
+    totalIndex = np.array([[0, 1, 2, 3, 3, 2, 1, 0, 4, 5, 5, 4], 
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]])
+
+    xOutput = np.zeros(6)
+
+    for i in range(0, len(xInput)):
+        for j in range(0, len(totalIndex[0])):
+            if i == totalIndex[1, j]:
+                xOutput[totalIndex[0, j]] += xInput[i]
+
+    return xOutput
+
 # CAPS group assigments are all jumbled up. This maps them properly
 # First 8 indexes represent plate segments perpendicular to stiffeners
 # Last 4 indexes represent stiffener segments
@@ -74,14 +88,15 @@ def revDesignIndex(xInput):
     for i in range(0, len(xInput)):
         for j in range(0, len(totalIndex[0])):
             if i == totalIndex[1, j]:
-                # print('i:     ', i)
-                # print('j:     ', j)
                 xOutput[totalIndex[0, j]] += xInput[i]
+                
+    return xOutput
 
-    # inputNorm = np.linalg.norm(xInput)
-    # xOutput = xOutput / np.linalg.norm(xOutput)
-    # xOutput = inputNorm * xOutput
-
+def revdesignVarIndex(xInput):
+    designVarIndex = np.array([111,16,110,102,94,87,70,63,46,39,22,103,15,109,101,93,86,69,62,45,38,21,95,14,108,100,92,85,68,61,44,37,20,88,13,107,99,91,84,67,60,43,36,19,71,12,106,98,90,83,66,59,42,35,18,64,11,105,97,89,82,65,58,41,34,17,47,10,104,96,80,81,56,57,32,33,8,40,9,23,79,53,29,5,76,52,28,4,75,51,27,55,3,74,50,26,2,73,49,25,1,72,31,48,24,0,7,78,54,30,6,77])
+    xOutput = np.zeros(len(xInput))
+    for i in range(0, len(xInput)):
+        xOutput[designVarIndex[i]] = xInput[i]
     return xOutput
 
 
@@ -104,8 +119,8 @@ cte = 24.0e-6
 kappa = 230.0
 
 # Shell thickness
-# tInputArray1 = 0.1*np.ones(6)
-tInputArray1 = np.array([0.20215001, 0.13675352, 0.08083595, 0.02695205, 0.04152267, 0.04318834])
+tInputArray1 = 0.1*np.ones(6)
+# tInputArray1 = np.array([0.20215001, 0.13675352, 0.08083595, 0.02695205, 0.04152267, 0.04318834])
 tInputArray2 = symmetryIndex(tInputArray1)
 tOutputArray3= designIndex(tInputArray2)
 
@@ -157,15 +172,16 @@ ksWeight = 100.0
 funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
          functions.StructuralMass(assembler),
          functions.AverageTemperature(assembler),
-         functions.KSTemperature(assembler, ksWeight=ksWeight)]
-# funcs = [functions.Compliance(assembler)]
+         functions.KSTemperature(assembler, ksWeight=ksWeight),
+         functions.Compliance(assembler),
+         functions.KSDisplacement(assembler, ksWeight=100, direction=[0.0, 0.0, -1.0])]
 
 # Get the design variable values
 x = assembler.createDesignVec()
 x_array = x.getArray()
 assembler.getDesignVars(x)
-if comm.rank == 0:
-    print('x_DesignVars:      ', x_array)
+# if comm.rank == 0:
+#     print('x_DesignVars:      ', x_array)
 
 # Get the node locations
 X = assembler.createNodeVec()
@@ -206,7 +222,14 @@ assembler.setVariables(ans)
 fvals1 = assembler.evalFunctions(funcs)
 
 if comm.rank == 0:
-    print('fvals1:      ', fvals1)
+    print('\n---------- FUNCTION SOLVE ----------')
+    print('Design Variables:  ', tInputArray1)
+    print('KSFailure:         ', fvals1[0])
+    print('Structural Mass:   ', fvals1[1])
+    print('Average Temp:      ', fvals1[2])
+    print('KSTemperature:     ', fvals1[3])
+    print('Compliance:        ', fvals1[4])
+    print('KSDisplacement:    ', fvals1[5])
 
 # Assemble the transpose of the Jacobian matrix
 assembler.assembleJacobian(alpha, beta, gamma, res, mat, TACS.TRANSPOSE)
@@ -271,6 +294,16 @@ for i in range(len(funcs)):
         print('Adjoint: ', result)
         print('Rel err: ', (result - fd)/result)
 
+
+dfdxnp1 = dfdx[3].getArray()
+dfdxnp2 = revdesignVarIndex(dfdxnp1)
+dfdxnp3 = revDesignIndex(dfdxnp2)
+dfdxnp4 = revSymmetryIndex(dfdxnp3)
+
+print('dfdxRaw:      ', dfdxnp1)
+print('dfdxReduced:  ', dfdxnp4)
+
+
 # Output for visualization
 flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_NODES |
@@ -279,4 +312,4 @@ flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_STRESSES |
         TACS.OUTPUT_EXTRAS)
 f5 = TACS.ToFH5(assembler, TACS.BEAM_OR_SHELL_ELEMENT, flag)
-f5.writeToFile('outputThermal.f5')
+f5.writeToFile('baseThermal.f5')

@@ -115,8 +115,8 @@ kcorr = 5.0/6.0     # shear correction factor
 ys = 324.0e6        # yield stress
 
 # Shell thickness
-# tInputArray1 = 0.01*np.ones(6)
-tInputArray1 = np.linspace(1.0, 10.0,num=6)
+tInputArray1 = 0.1*np.ones(6)
+# tInputArray1 = np.linspace(1.0, 10.0,num=6)
 # tInputArray1 = np.array([1.46e-2, 4.41e-3, 1.61e-3, 7.38e-3, 1.22e-2, 4.95e-3]) # Optimized Result
 tInputArray2 = symmetryIndex(tInputArray1)
 tOutputArray3= designIndex(tInputArray2)
@@ -172,7 +172,8 @@ assembler = FEASolver.assembler
 ksWeight = 100.0
 funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
          functions.StructuralMass(assembler),
-         functions.Compliance(assembler)]
+         functions.Compliance(assembler),
+         functions.KSDisplacement(assembler, ksWeight=1, direction=[0.0, 0.0, 1.0])]
 # funcs = [functions.KSFailure(assembler, ksWeight=ksWeight),
 #          functions.StructuralMass(assembler),
 #          functions.AverageTemperature(assembler),
@@ -291,10 +292,11 @@ for i in range(len(funcs)):
         print('Rel err: ', (result - fd)/result)
 
 
-dfdxnp1 = dfdx[2].getArray()
+dfdxnp1 = dfdx[3].getArray()
 dfdxnp2 = revdesignVarIndex(dfdxnp1)
 dfdxnp3 = revDesignIndex(dfdxnp2)
 dfdxnp4 = revSymmetryIndex(dfdxnp3)
+print('dfdxnp4:     ', dfdxnp4)
 
 # Adjoint Testing
 
@@ -323,9 +325,6 @@ dfdxnp4 = revSymmetryIndex(dfdxnp3)
 x2 = assembler.createDesignVec()
 x_array2 = x2.getArray()
 assembler.getDesignVars(x2)
-if comm.rank == 0:
-    print('x_DesignVars2:      ', x_array2)
-    print('len(x_DesignVars2): ', len(x_array2))
 
 print('reordering', assembler.getReordering())
 

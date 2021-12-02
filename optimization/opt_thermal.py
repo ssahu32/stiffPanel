@@ -54,7 +54,7 @@ def revSymmetryIndex(xInput):
 
     return xOutput
 
-# CAPS group assigments are all jumbled up. This maps them properly
+# CAPS groups are all jumbled up. This maps them properly
 # First 8 indexes represent plate segments perpendicular to stiffeners
 # Last 4 indexes represent stiffener segments
 def designIndex(xInput):
@@ -143,7 +143,6 @@ def objfunc(xdict):
         for elemDescript in elemDescripts:
             if elemDescript in ['CQUAD4', 'CQUADR']:
                 elem = elements.Quad4ThermalShell(transform, con)
-                # elem = elements.Quad4Shell(transform, con)
             else:
                 print("Uh oh, '%s' not recognized" % (elemDescript))
             elemList.append(elem)
@@ -156,20 +155,19 @@ def objfunc(xdict):
 
     # Create the KS Function
     ksWeight = 100.0
-    # tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
-    #      functions.StructuralMass(assembler),
-    #      functions.Compliance(assembler)]
     tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
          functions.StructuralMass(assembler),
          functions.AverageTemperature(assembler),
-         functions.KSTemperature(assembler, ksWeight=ksWeight)]
+         functions.KSTemperature(assembler, ksWeight=ksWeight),
+         functions.Compliance(assembler),
+         functions.KSDisplacement(assembler, ksWeight=100, direction=[0.0, 0.0, -1.0])]
 
     # Get the design variable values
     x = assembler.createDesignVec()
     x_array = x.getArray()
     assembler.getDesignVars(x)
     # if comm.rank == 0:
-    # print('x_DesignVars:      ', x_array)
+    #     print('x_DesignVars:      ', x_array)
 
     # Get the node locations
     X = assembler.createNodeVec()
@@ -209,23 +207,21 @@ def objfunc(xdict):
     fvals = assembler.evalFunctions(tacsFuncs)
 
     if comm.rank == 0:
+        print('\n---------- FUNCTION SOLVE ----------')
         print('Design Variables:  ', tInputArray1)
         print('KSFailure:         ', fvals[0])
         print('Structural Mass:   ', fvals[1])
         print('Average Temp:      ', fvals[2])
         print('KSTemperature:     ', fvals[3])
     
-    # Objective 
+    # Function Assignment 
     funcs = {}
-    funcs["obj"] = fvals[2] # Objective is temperature minimization
-    conval = fvals[1] # Constraint is mass
+    funcs["obj"] = fvals[2] # Objective
+    conval = fvals[1] # Constraint
     funcs["con"] = conval
     fail = False
 
     return funcs, fail
-
-
-#####################################################################################################################################################################
 
 
 def sens(xdict, funcs):
@@ -267,7 +263,6 @@ def sens(xdict, funcs):
         for elemDescript in elemDescripts:
             if elemDescript in ['CQUAD4', 'CQUADR']:
                 elem = elements.Quad4ThermalShell(transform, con)
-                # elem = elements.Quad4Shell(transform, con)
             else:
                 print("Uh oh, '%s' not recognized" % (elemDescript))
             elemList.append(elem)
@@ -280,20 +275,17 @@ def sens(xdict, funcs):
 
     # Create the KS Function
     ksWeight = 100.0
-    # tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
-    #      functions.StructuralMass(assembler),
-    #      functions.Compliance(assembler)]
     tacsFuncs = [functions.KSFailure(assembler, ksWeight=ksWeight),
          functions.StructuralMass(assembler),
          functions.AverageTemperature(assembler),
-         functions.KSTemperature(assembler, ksWeight=ksWeight)]
+         functions.KSTemperature(assembler, ksWeight=ksWeight),
+         functions.Compliance(assembler),
+         functions.KSDisplacement(assembler, ksWeight=100, direction=[0.0, 0.0, -1.0])]
 
     # Get the design variable values
     x = assembler.createDesignVec()
     x_array = x.getArray()
     assembler.getDesignVars(x)
-    # if comm.rank == 0:
-    # print('x_DesignVars:      ', x_array)
 
     # Get the node locations
     X = assembler.createNodeVec()
@@ -355,20 +347,24 @@ def sens(xdict, funcs):
         fdv_sens.endSetValues()
 
         dfdx.append(fdv_sens)
-    
-    dfdxObj1 = dfdx[2].getArray() # Temperature minimization
+
+    # Gradient Assignment    
+    dfdxObj1 = dfdx[2].getArray() # Objective
     dfdxObj2 = revdesignVarIndex(dfdxObj1)
     dfdxObj3 = revDesignIndex(dfdxObj2)
     dfdxObj4 = revSymmetryIndex(dfdxObj3)
 
-    dfdxCon1 = dfdx[1].getArray() # Mass constraint
+    dfdxCon1 = dfdx[1].getArray() # Constraint
     dfdxCon2 = revdesignVarIndex(dfdxCon1)
     dfdxCon3 = revDesignIndex(dfdxCon2)
     dfdxCon4 = revSymmetryIndex(dfdxCon3)
 
     if comm.rank == 0:
+        print('\n---------- GRADIENT SOLVE ----------')
         print('Objective Gradient:       ', dfdxObj4)
         print('Constraint Gradient:      ', dfdxCon4)
+        # print('dfdxObj1:      ', dfdxObj1)
+        # print('dfdxObj4:      ', dfdxObj4)
     
     # Objective 
     funcsSens = {}
@@ -384,6 +380,106 @@ def sens(xdict, funcs):
     fail = False
 
     return funcsSens, fail
+
+
+
+def outputResult(xdict):
+
+    tInputArray1 = xdict["xvars"]
+
+    # Instantiate FEASolver
+    structOptions = {
+        'printtiming':False,
+    }
+
+    bdfFile = os.path.join(os.path.dirname(__file__), 'nastran_CAPS3_coarse_thermal.dat')
+    FEASolver = pyTACS(bdfFile, options=structOptions, comm=comm)
+
+    # Material properties
+    rho = 2780.0        # density kg/m^3
+    E = 73.1e9          # Young's modulus (Pa)
+    nu = 0.33           # Poisson's ratio
+    kcorr = 5.0/6.0     # shear correction factor
+    ys = 324.0e6        # yield stress
+    specific_heat = 920.096
+    cte = 24.0e-6
+    kappa = 230.0
+    
+    tInputArray2 = symmetryIndex(tInputArray1)
+    tOutputArray3= designIndex(tInputArray2)
+
+    def elemCallBack(dvNum, compID, compDescript, elemDescripts, globalDVs, **kwargs):
+        elemIndex = kwargs['propID'] - 1
+        # t = tOutputArray[compID]
+        t = tOutputArray3[elemIndex]
+
+        prop = constitutive.MaterialProperties(rho=rho, specific_heat=specific_heat,
+                                                E=E, nu=nu, ys=ys, cte=cte, kappa=kappa)
+        con = constitutive.IsoShellConstitutive(prop, t=t, tNum=dvNum)
+
+        elemList = []
+        transform = None
+        for elemDescript in elemDescripts:
+            if elemDescript in ['CQUAD4', 'CQUADR']:
+                elem = elements.Quad4ThermalShell(transform, con)
+            else:
+                print("Uh oh, '%s' not recognized" % (elemDescript))
+            elemList.append(elem)
+        scale = [100.0]
+        return elemList, scale
+    
+    # Set up elements and TACS assembler
+    FEASolver.initialize(elemCallBack)
+    assembler = FEASolver.assembler
+
+    # Get the design variable values
+    x = assembler.createDesignVec()
+    x_array = x.getArray()
+    assembler.getDesignVars(x)
+
+    # Get the node locations
+    X = assembler.createNodeVec()
+    assembler.getNodes(X)
+    assembler.setNodes(X)
+
+    # Create the forces
+    forces = assembler.createVec()
+    force_array = forces.getArray()
+    force_array[6::7] += 1e-3 # Heat flux
+    # assembler.applyBCs(forces)
+    assembler.setBCs(forces)
+
+    # Set up and solve the analysis problem
+    res = assembler.createVec()
+    ans = assembler.createVec()
+    u = assembler.createVec()
+    mat = assembler.createSchurMat()
+    pc = TACS.Pc(mat)
+    subspace = 100
+    restarts = 2
+    gmres = TACS.KSM(mat, pc, subspace, restarts)
+
+    # Assemble the Jacobian and factor
+    alpha = 1.0
+    beta = 0.0
+    gamma = 0.0
+    assembler.zeroVariables()
+    assembler.assembleJacobian(alpha, beta, gamma, res, mat)
+    pc.factor()
+
+    # Solve the linear system
+    gmres.solve(forces, ans)
+    assembler.setVariables(ans)
+
+    # Output for visualization
+    flag = (TACS.OUTPUT_CONNECTIVITY |
+            TACS.OUTPUT_NODES |
+            TACS.OUTPUT_DISPLACEMENTS |
+            TACS.OUTPUT_STRAINS |
+            TACS.OUTPUT_STRESSES |
+            TACS.OUTPUT_EXTRAS)
+    f5 = TACS.ToFH5(assembler, TACS.BEAM_OR_SHELL_ELEMENT, flag)
+    f5.writeToFile('optThermal.f5')
 
 
 
@@ -411,7 +507,8 @@ optProb.addObj("obj")
 
 # rst begin print
 # Check optimization problem
-print(optProb)
+if comm.rank == 0:
+    print(optProb)
 
 # rst begin OPT
 # Optimizer
@@ -427,3 +524,5 @@ sol = opt(optProb, sens=sens, storeHistory='opt_history.hst')
 # Check Solution
 if comm.rank == 0:
     print(sol)
+
+outputResult(sol.xStar)
