@@ -329,6 +329,6 @@ PSHELL        31       1      0.       1      1.       10.833333
 PSHELL         7       1      0.       1      1.       10.833333
 PSHELL        78       1      0.       1      1.       10.833333
 
-INCLUDE 'stiffPanel4Thermal_liam.bdf'
+INCLUDE 'stiffPanel4_liam.bdf'
 
 ENDDATA
