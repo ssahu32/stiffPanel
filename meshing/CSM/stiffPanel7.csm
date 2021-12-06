@@ -1,0 +1,80 @@
+# Design Parameters
+despmtr   plateLength       1.0
+despmtr   plateWidth        1.003819
+despmtr stiffHeight         0.05
+
+cfgpmtr nx 2
+cfgpmtr ny 8
+cfgpmtr nstiff 4
+
+dimension edgeNumbers 4 10
+cfgpmtr edgeNumbers "246;229;212;205;161;154;110;103;59;52;\
+                     232;215;189;191;138;140;87;89;28;31;\
+                     245;243;241;239;237;235;233;230;\
+                     51;48;45;42;39;36;33;29"
+
+
+set nx2 nx*(nstiff+1)
+set Lx plateLength/nx2
+set Ly plateWidth/ny
+set dxStiff plateLength/(nstiff+1)
+
+# plate segments
+mark
+patbeg ix nx2
+    patbeg iy ny
+        set plateInd ix+nx2*(iy-1)
+        skbeg (ix-1)*Lx (iy-1)*Ly 0
+            linseg ix*Lx (iy-1)*Ly 0
+        skend 0
+        extrude 0 Ly 0
+        
+        select face
+        attribute capsGroup !$plate+iy
+        attribute capsLoad $plate
+    patend
+patend
+join 0 1
+store plate
+   
+patbeg istiff nstiff
+    mark
+    patbeg iy ny
+        set stiffInd istiff+nstiff*(iy-1)
+        skbeg istiff*dxStiff (iy-1)*Ly 0
+            linseg istiff*dxStiff iy*Ly 0
+        skend 0
+        extrude 0 0 -stiffHeight
+        select face
+         attribute capsGroup !$stiffener+istiff
+         attribute capsLoad $stiffener
+    patend
+    join 0 1
+    restore plate
+    join
+    store plate
+patend
+restore plate
+   
+select body
+   attribute capsAIM $egadsTessAIM;tacsAIM
+patbeg edgeInd 10
+   select edge !edgeNumbers[1,edgeInd]
+   	   attribute capsConstraint $edgeWedge
+   select edge !edgeNumbers[2,edgeInd]
+       attribute capsConstraint $edgeWedge
+   select edge !edgeNumbers[3,edgeInd]
+       attribute capsConstraint $edgeWall
+   select edge !edgeNumbers[4,edgeInd]
+       attribute capsConstraint $edgeWall
+patend
+
+#xrotation deg, yc,zc
+#yrotation deg, zc,xc
+#zrotation deg, xc,yc
+#translation x y z
+
+rotatez -90.0 0.0 0.0
+translate 0.0 plateLength 0.0
+rotatey -5.0 0.0 0.0
+translate 2.0 0.0 0.087488664
