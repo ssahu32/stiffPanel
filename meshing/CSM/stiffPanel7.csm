@@ -13,6 +13,12 @@ cfgpmtr edgeNumbers "246;229;212;205;161;154;110;103;59;52;\
                      245;243;241;239;237;235;233;230;\
                      51;48;45;42;39;36;33;29"
 
+dimension nodeNumbers 4 10
+cfgpmtr nodeNumbers "36;35;17;63;53;90;80;117;107;126;\
+                    128;119;93;110;66;83;39;56;3;20;\
+                    135;134;133;132;131;130;129;127;\
+                    22;21;24;26;28;30;32;34"
+
 
 set nx2 nx*(nstiff+1)
 set Lx plateLength/nx2
@@ -60,14 +66,26 @@ select body
    attribute capsAIM $egadsTessAIM;tacsAIM
 patbeg edgeInd 10
    select edge !edgeNumbers[1,edgeInd]
-   	   attribute capsConstraint $edgeWedge
+   	   attribute capsConstraint $Wedge
    select edge !edgeNumbers[2,edgeInd]
-       attribute capsConstraint $edgeWedge
+       attribute capsConstraint $Wedge
    select edge !edgeNumbers[3,edgeInd]
-       attribute capsConstraint $edgeWall
+       attribute capsConstraint $Wall
    select edge !edgeNumbers[4,edgeInd]
-       attribute capsConstraint $edgeWall
+       attribute capsConstraint $Wall
 patend
+
+patbeg nodeInd 10
+   select node !nodeNumbers[1,nodeInd]
+   	   attribute capsConstraint $Wedge
+   select node !nodeNumbers[2,nodeInd]
+       attribute capsConstraint $Wedge
+   select node !nodeNumbers[3,nodeInd]
+       attribute capsConstraint $Wall
+   select node !nodeNumbers[4,nodeInd]
+       attribute capsConstraint $Wall
+patend
+
 
 #xrotation deg, yc,zc
 #yrotation deg, zc,xc

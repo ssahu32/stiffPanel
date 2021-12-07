@@ -60,9 +60,9 @@ tacsAnalysis.input.Property = propertyDict
 # Set constraints
 constraints = {}
 
-constraintWedge = {"groupName" : "edgeWedge",
+constraintWedge = {"groupName" : "Wedge",
               "dofConstraint" : 12346}
-constraintWall = {"groupName" : "edgeWall",
+constraintWall = {"groupName" : "Wall",
               "dofConstraint" : 123}
 
 constraints["constraintWedge"] = constraintWedge
