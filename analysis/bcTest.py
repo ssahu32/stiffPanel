@@ -194,117 +194,11 @@ forces = assembler.createVec()
 force_array = forces.getArray()
 # force_array[2::7] += 1.0 # uniform load in z direction
 force_array[6::7] += 1e-3 # Heat Flux
-force_array[:]
-# assembler.applyBCs(forces)
-assembler.setBCs(forces)
+force_array[:] = 1
+assembler.applyBCs(forces)
+# assembler.setBCs(forces)
 
-# Set up and solve the analysis problem
-res = assembler.createVec()
-ans = assembler.createVec()
-u = assembler.createVec()
-mat = assembler.createSchurMat()
-pc = TACS.Pc(mat)
-subspace = 100
-restarts = 2
-gmres = TACS.KSM(mat, pc, subspace, restarts)
-
-# Assemble the Jacobian and factor
-alpha = 1.0
-beta = 0.0
-gamma = 0.0
-assembler.zeroVariables()
-assembler.assembleJacobian(alpha, beta, gamma, res, mat)
-pc.factor()
-
-# Solve the linear system
-gmres.solve(forces, ans)
-assembler.setVariables(ans)
-
-# Evaluate the function
-fvals1 = assembler.evalFunctions(funcs)
-
-if comm.rank == 0:
-    print('\n---------- FUNCTION SOLVE ----------')
-    print('Design Variables:  ', tInputArray1)
-    print('KSFailure:         ', fvals1[0])
-    print('Structural Mass:   ', fvals1[1])
-    print('Average Temp:      ', fvals1[2])
-    print('KSTemperature:     ', fvals1[3])
-    print('Compliance:        ', fvals1[4])
-    print('KSDisplacement:    ', fvals1[5])
-
-# Assemble the transpose of the Jacobian matrix
-assembler.assembleJacobian(alpha, beta, gamma, res, mat, TACS.TRANSPOSE)
-pc.factor()
-
-# Solve for the adjoint variables
-adjoint = assembler.createVec()
-
-dfdx = []
-
-for func in funcs:
-    res.zeroEntries()
-    assembler.addSVSens([func], [res])
-    gmres.solve(res, adjoint)
-
-    # Compute the total derivative w.r.t. material design variables
-    fdv_sens = assembler.createDesignVec()
-    assembler.addDVSens([func], [fdv_sens])
-    assembler.addAdjointResProducts([adjoint], [fdv_sens], -1.0)
-
-    # Finalize sensitivity arrays across all procs
-    fdv_sens.beginSetValues()
-    fdv_sens.endSetValues()
-
-    dfdx.append(fdv_sens)
-
-# Set the complex step
-xpert = assembler.createDesignVec()
-xpert.setRand()
-
-xnew = assembler.createDesignVec()
-xnew.copyValues(x)
-if TACS.dtype is complex:
-    dh = 1e-30
-    xnew.axpy(dh*1j, xpert)
-else:
-    dh = 1e-6
-    xnew.axpy(dh, xpert)
-
-# Set the design variables
-assembler.setDesignVars(xnew)
-
-# Compute the perturbed solution
-assembler.zeroVariables()
-assembler.assembleJacobian(alpha, beta, gamma, res, mat)
-pc.factor()
-gmres.solve(forces, u)
-assembler.setVariables(u)
-
-# Evaluate the function for perturbed solution
-fvals2 = assembler.evalFunctions(funcs)
-
-print('\n')
-for i in range(len(funcs)):
-    if TACS.dtype is complex:
-        fd = fvals2[i].imag/dh
-    else:
-        fd = (fvals2[i] - fvals1[i])/dh
-
-    result = xpert.dot(dfdx[i])
-    if comm.rank == 0:
-        print('FD:      ', fd)
-        print('Adjoint: ', result)
-        print('Rel err: ', (result - fd)/result)
-
-
-dfdxnp1 = dfdx[0].getArray()
-# dfdxnp2 = revdesignVarIndex(dfdxnp1)
-# dfdxnp3 = revDesignIndex(dfdxnp2)
-# dfdxnp4 = revSymmetryIndex(dfdxnp3)
-
-print('\ndfdxRaw:      ', dfdxnp1)
-# print('\ndfdxReduced:  ', dfdxnp4)
+assembler.setVariables(forces)
 
 
 # Output for visualization
@@ -315,4 +209,4 @@ flag = (TACS.OUTPUT_CONNECTIVITY |
         TACS.OUTPUT_STRESSES |
         TACS.OUTPUT_EXTRAS)
 f5 = TACS.ToFH5(assembler, TACS.BEAM_OR_SHELL_ELEMENT, flag)
-f5.writeToFile('baseThermal.f5')
+f5.writeToFile('baseThermalBC.f5')
